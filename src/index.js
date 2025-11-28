@@ -42,8 +42,10 @@ app.use('/static/images', express.static(process.env.IMAGES_FOLDER, {
 app.use('/api', router);
 app.use(errorMiddleware);
 
+const server = app.listen(PORT, () => console.log(`Server started on PORT ${PORT}`));
+
 const wss = new WebSocket.WebSocketServer({
-    server: app
+    server
 });
 
 const userSockets = new Map();
@@ -206,7 +208,6 @@ async function start() {
         console.log(process.env.BD_NAME)
         await db.authenticate();
         await db.sync();
-        app.listen(PORT, () => console.log(`Server started on PORT ${PORT}`));
     } catch (e) {
         console.log(e);
     }
