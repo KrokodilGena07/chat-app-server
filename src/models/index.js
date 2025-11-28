@@ -14,12 +14,19 @@ const User = db.define('user', {
 
 const Session = db.define('sessions', {
     id: {primaryKey: true, type: DataTypes.UUID},
-    refreshToken: {type: DataTypes.STRING, allowNull: false, unique: true}
+    refreshToken: {type: DataTypes.STRING, allowNull: false, unique: true},
+    userAgent: {type: DataTypes.STRING, allowNull: false}
 });
 
 const Chat = db.define('chat', {
     id: {primaryKey: true, type: DataTypes.UUID},
-    users: {type: DataTypes.STRING, defaultValue: '[]'}
+    type: {type: DataTypes.ENUM('GROUP', 'CHAT'), defaultValue: 'CHAT'},
+    image: {type: DataTypes.STRING},
+    name: {type: DataTypes.STRING}
+});
+
+const ChatUser = db.define('chat_users', {
+    id: {primaryKey: true, type: DataTypes.UUID}
 });
 
 const Message = db.define('message', {
@@ -36,9 +43,16 @@ Session.belongsTo(User);
 Chat.hasMany(Message);
 Message.belongsTo(Chat);
 
+Chat.hasMany(ChatUser);
+ChatUser.belongsTo(Chat);
+
+User.hasMany(ChatUser);
+ChatUser.belongsTo(User);
+
 module.exports = {
     User,
     Session,
     Chat,
-    Message
+    Message,
+    ChatUser
 };

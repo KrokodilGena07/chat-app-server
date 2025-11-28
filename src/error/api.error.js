@@ -13,7 +13,7 @@ class ApiError extends Error {
     }
 
     static unauthorized() {
-        return new ApiError(400, 'unauthorized error');
+        return new ApiError(401, 'unauthorized error');
     }
 }
 

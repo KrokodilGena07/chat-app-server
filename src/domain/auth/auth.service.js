@@ -5,10 +5,10 @@ const {User, Session} = require('../../models');
 const bcrypt = require('bcrypt');
 const mailService = require('../mail/mail.service');
 const tokenService = require('../token/token.service');
-const UserDto = require('./dtos/user.dto');
+const UserDto = require('../../dtos/user.dto');
 
 class AuthService {
-    async registration(name, surname, email, password, image) {
+    async registration(name, surname, email, password, image, userAgent) {
         const candidate = await User.findOne({where: {email}});
         if (candidate) {
             throw ApiError.badRequest('user with this id already exists');
@@ -47,10 +47,10 @@ class AuthService {
             `${process.env.API_URL}/api/auth/activate/${activationLink}`
         );
 
-        return await this.#finishAuth(user);
+        return await this.#finishAuth(user, userAgent);
     }
 
-    async login(email, password) {
+    async login(email, password, userAgent) {
         if (!email || !password) {
             throw ApiError.badRequest('data is empty');
         }
@@ -65,7 +65,7 @@ class AuthService {
             throw ApiError.badRequest('password is wrong');
         }
 
-        return await this.#finishAuth(user);
+        return await this.#finishAuth(user, userAgent);
     }
 
     async logout(refreshToken) {
@@ -87,12 +87,31 @@ class AuthService {
         return await user.save();
     }
 
-    async #finishAuth(user) {
-        const id = uuid.v4();
+    async refresh(refreshToken) {
+        if (!refreshToken) {
+            throw ApiError.unauthorized();
+        }
+
+        const decoded = tokenService.validateRefreshToken(refreshToken);
+        const tokenFromDB = await Session.findOne({where: {refreshToken}});
+
+        if (!decoded || !tokenFromDB) {
+            throw ApiError.unauthorized();
+        }
+
+        const user = await User.findByPk(decoded.id);
+        if (!user) {
+            throw ApiError.unauthorized();
+        }
+
+        return this.#finishAuth(user);
+    }
+
+    async #finishAuth(user, userAgent) {
         const tokens = tokenService.generateTokens({
             id: user.id, email: user.email
         });
-        await Session.create({refreshToken: tokens.refreshToken, userId: user.id, id});
+        await tokenService.saveToken(tokens.refreshToken, user.id, userAgent);
         const userDto = new UserDto(user);
         return {...tokens, user: userDto};
     }

@@ -11,6 +11,8 @@ const cookieOptions = {
 class AuthController {
     async registration(req, res, next) {
         try {
+            const userAgent = req.headers['user-agent'];
+
             const errors = validationResult(req);
             if (!errors.isEmpty()) {
                 return next(ApiError.badRequest('data is invalid', errors.array()));
@@ -25,7 +27,7 @@ class AuthController {
                 }
             }
 
-            const data = await authService.registration(name, surname, email, password, files?.image);
+            const data = await authService.registration(name, surname, email, password, files?.image, userAgent);
             res.cookie('refreshToken', data.refreshToken, cookieOptions);
             res.json(data);
         } catch (e) {
@@ -36,7 +38,8 @@ class AuthController {
     async login(req, res, next) {
         try {
             const {email, password} = req.body;
-            const data = await authService.login(email, password);
+            const userAgent = req.headers['user-agent'];
+            const data = await authService.login(email, password, userAgent);
             res.cookie('refreshToken', data.refreshToken, cookieOptions);
             res.json(data);
         } catch (e) {
@@ -60,6 +63,17 @@ class AuthController {
             const {link} = req.params;
             await authService.activate(link);
             res.redirect(process.env.CLIENT_URL);
+        } catch (e) {
+            next(e);
+        }
+    }
+
+    async refresh(req, res, next) {
+        try {
+            const {refreshToken} = req.cookies;
+            const data = await authService.refresh(refreshToken);
+            res.cookie('refreshToken', data.refreshToken, cookieOptions);
+            res.json(data);
         } catch (e) {
             next(e);
         }

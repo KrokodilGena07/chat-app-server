@@ -14,7 +14,9 @@ const WebSocket = require('ws');
 const fileUpload = require('express-fileupload');
 const jwt = require('jsonwebtoken');
 const uuid = require('uuid');
-const {Chat, Message} = require('./models');
+const {Chat, Message, ChatUser, User} = require('./models');
+const url = require('url');
+const {Op} = require('sequelize');
 
 const PORT = process.env.PORT;
 const app = express();
@@ -33,27 +35,36 @@ app.use(compression({
 app.use(cookieParser());
 app.use(express.json());
 app.use(fileUpload({}));
-app.use('/static/images', express.static(process.env.IMAGES_FOLDER));
+app.use('/static/images', express.static(process.env.IMAGES_FOLDER, {
+    setHeaders: (res) => {
+        res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+    },
+}));
 app.use('/api', router);
 app.use(errorMiddleware);
 
 const wss = new WebSocket.WebSocketServer({
-    port: process.env.WS_PORT
+    port: 8000
 });
 
 const userSockets = new Map();
 
 wss.on('connection', (ws, req) => {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) {
-        ws.close(1003, 'unauthorized error');
-    }
+    const parsedUrl = url.parse(req.url, true);
+    const token = parsedUrl.query.token;
 
+    if (!token) {
+        return ws.close(1003, 'unauthorized error');
+    }
     let decoded;
     try {
-        decoded = jwt.verify(token, process.env.ACCESS_SECRET_KEY);
+        decoded = jwt.decode(token, process.env.ACCESS_SECRET_KEY); // TODO CHANGE TO VERIFY
     } catch (e) {
-        ws.close(1003, 'unauthorized error');
+        return ws.close(1003, 'unauthorized error');
+    }
+
+    if (!decoded.id) {
+        return ws.close(1003, 'unauthorized error');
     }
 
     userSockets.set(decoded.id, ws);
@@ -69,6 +80,10 @@ wss.on('connection', (ws, req) => {
 
 async function handleMessage(message, ws) {
     const msg = JSON.parse(message);
+    if (!msg.data) {
+        ws.send(JSON.stringify({ error: 'Data is empty' }));
+        return;
+    }
     switch (msg.type) {
         case 'CREATE_CHAT':
             await createChat(msg.data);
@@ -79,7 +94,30 @@ async function handleMessage(message, ws) {
         case 'LOAD_MESSAGES':
             await loadMessages(msg.data);
             break;
+        case 'SEARCH':
+            await search(msg.data);
+            break;
         default: ws.send(JSON.stringify({ error: 'Unknown message type' }));
+    }
+}
+
+async function search(data) {
+    const users = await User.findAll({
+        where: {
+            [Op.or]: {
+                name: {
+                    [Op.iLike]: `%${data.search}%`
+                },
+                surname: {
+                    [Op.iLike]: `%${data.search}%`
+                },
+            }
+        }
+    });
+
+    const userSocket = userSockets.get(data.userId);
+    if (userSocket && userSocket.readyState === WebSocket.OPEN) {
+        userSocket.send(JSON.stringify({data: users, type: 'SEARCH'}));
     }
 }
 
@@ -90,10 +128,11 @@ async function createChat(data) {
 
 async function loadMessages(data) {
     const id = data.chatId;
+    console.log(data)
     const messages = await Message.findAll({where: {chatId: id}});
     const userSocket = userSockets.get(data.userId);
     if (userSocket && userSocket.readyState === WebSocket.OPEN) {
-        userSocket.send(JSON.stringify(messages));
+        userSocket.send(JSON.stringify({data: messages, type: 'LOAD_MESSAGES'}));
     }
 }
 
@@ -103,11 +142,18 @@ async function sendMessage(data) {
         const messageId = uuid.v4();
         const senderId = data.senderId;
         const recipientId = data.recipientId;
+        const time = Date.now()
 
-        await Chat.create({
+        const newChat = await Chat.create({
             id: chatId,
             users: JSON.stringify([senderId, recipientId])
         });
+
+        const id1 = uuid.v4();
+        const id2 = uuid.v4();
+        await ChatUser.create({chatId, userId: senderId, id: id1});
+        await ChatUser.create({chatId, userId: recipientId, id: id2});
+
         const message = await Message.create({
             id: messageId,
             text: data.text,
@@ -119,11 +165,13 @@ async function sendMessage(data) {
         const recipientSocket = userSockets.get(recipientId);
 
         if (senderSocket && senderSocket.readyState === WebSocket.OPEN) {
-            senderSocket.send(JSON.stringify(message));
+            senderSocket.send(JSON.stringify({data: message, type: 'CREATE_CHAT'}));
+        } else {
+            console.log(senderSocket, senderSocket.readyState === WebSocket.OPEN)
         }
 
         if (recipientSocket && recipientSocket.readyState === WebSocket.OPEN) {
-            recipientSocket.send(JSON.stringify(message));
+            recipientSocket.send(JSON.stringify({data: message,  type: 'SEND_MESSAGE'}));
         }
 
         return;
@@ -134,7 +182,7 @@ async function sendMessage(data) {
         console.log('Error');
     }
 
-    const users = JSON.parse(chat.users);
+    const users = await ChatUser.findAll({where: {chatId: data.chatId}})
 
     const id = uuid.v4();
     const message = await Message.create({
@@ -144,10 +192,12 @@ async function sendMessage(data) {
         chatId: data.chatId
     });
 
-    for (const userId of users) {
-        const userSocket = userSockets.get(userId);
+    for (const user of users) {
+        const userSocket = userSockets.get(user.dataValues.userId);
+        console.log('\n\n')
+        console.log(user.dataValues.id);
         if (userSocket && userSocket.readyState === WebSocket.OPEN) {
-            userSocket.send(JSON.stringify(message));
+            userSocket.send(JSON.stringify({data: message, type: 'SEND_MESSAGE'}));
         }
     }
 }
