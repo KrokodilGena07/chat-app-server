@@ -42,10 +42,10 @@ class AuthService {
         newUser.id = id;
 
         const user = await User.create(newUser);
-        await mailService.sendMail(
-            email,
-            `${process.env.API_URL}/api/auth/activate/${activationLink}`
-        );
+        // await mailService.sendMail(
+        //     email,
+        //     `${process.env.API_URL}/api/auth/activate/${activationLink}`
+        // );
 
         return await this.#finishAuth(user, userAgent);
     }
