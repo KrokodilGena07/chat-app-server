@@ -203,6 +203,7 @@ async function sendMessage(data) {
 
 async function start() {
     try {
+        console.log(process.env.BD_NAME)
         await db.authenticate();
         await db.sync();
         app.listen(PORT, () => console.log(`Server started on PORT ${PORT}`));
