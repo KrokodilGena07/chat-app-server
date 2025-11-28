@@ -43,8 +43,7 @@ app.use('/api', router);
 app.use(errorMiddleware);
 
 const wss = new WebSocket.WebSocketServer({
-    port: 8000,
-    path: '/ws'
+    server: app
 });
 
 const userSockets = new Map();
